@@ -14,7 +14,7 @@ export class AuthService {
   private readonly fs = inject(Firestore);
 
   private readonly firebaseUser = toSignal(authState(this.authRef), {
-    initialValue: undefined as User | null | undefined,
+    initialValue: null as User | null,
   });
   private readonly _profile = signal<Customer | null>(null);
   private readyPromise: Promise<void>;
