@@ -141,13 +141,13 @@ export class CheckoutModalComponent {
     return `Card ending in ${last4}`;
   }
 
-  placeOrder(): void {
+    async placeOrder(): Promise<void> {
     if (!this.termsAccepted) { this.toast.show('Please accept the demo checkout terms'); return; }
     const items: OrderItem[] = this.cart.lines().map((l) => ({
       id: l.product.id, name: l.product.name, price: l.product.price, qty: l.qty, icon: l.product.icon,
     }));
     const s = this.shippingForm.getRawValue();
-    const order = this.orderService.placeOrder(
+    const order = await this.orderService.placeOrder(
       items,
       { name: `${s.firstName} ${s.lastName}`, email: s.email, address: s.address, city: s.city, state: s.state, postal: s.postal, country: s.country },
       this.reviewPaymentLabel

@@ -1,43 +1,54 @@
-import { Injectable, computed, signal } from '@angular/core';
+import { Injectable, computed, inject } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
+import {
+  Firestore, collection, collectionData, doc,
+  updateDoc, deleteDoc, writeBatch,
+} from '@angular/fire/firestore';
+import { Observable } from 'rxjs';
+
 import { Customer, CustomerStatus } from '../models/customer.model';
 import { SEED_CUSTOMERS } from '../data/customers';
-import { loadJSON, saveJSON } from './storage.util';
-
-const KEY = 'cc_customers';
 
 @Injectable({ providedIn: 'root' })
 export class CustomerService {
-  private readonly _customers = signal<Customer[]>(loadJSON<Customer[]>(KEY, SEED_CUSTOMERS));
-  readonly customers = this._customers.asReadonly();
+  private readonly fs = inject(Firestore);
+  private readonly col = collection(this.fs, 'customers');
 
-  readonly activeCount = computed(() => this._customers().filter((c) => c.status === 'active').length);
-  readonly totalCustomers = computed(() => this._customers().length);
+  readonly customers = toSignal(
+    collectionData(this.col) as Observable<Customer[]>,
+    { initialValue: [] as Customer[] }
+  );
 
-  private persist(list: Customer[]): void {
-    saveJSON(KEY, list);
+  readonly activeCount = computed(
+    () => this.customers().filter((c) => c.status === 'active').length
+  );
+
+  readonly totalCustomers = computed(() => this.customers().length);
+
+  private ref(id: string) {
+    return doc(this.fs, 'customers', id);
   }
 
   search(query: string): Customer[] {
     const q = query.trim().toLowerCase();
-    if (!q) return this._customers();
-    return this._customers().filter(
+    if (!q) return this.customers();
+    return this.customers().filter(
       (c) => c.name.toLowerCase().includes(q) || c.email.toLowerCase().includes(q)
     );
   }
 
   setStatus(id: string, status: CustomerStatus): void {
-    this._customers.update((list) => {
-      const next = list.map((c) => (c.id === id ? { ...c, status } : c));
-      this.persist(next);
-      return next;
-    });
+    updateDoc(this.ref(id), { status });
   }
 
   remove(id: string): void {
-    this._customers.update((list) => {
-      const next = list.filter((c) => c.id !== id);
-      this.persist(next);
-      return next;
-    });
+    deleteDoc(this.ref(id));
+  }
+
+  /* One-time: uploads SEED_CUSTOMERS to Firestore */
+  async seed(): Promise<void> {
+    const batch = writeBatch(this.fs);
+    SEED_CUSTOMERS.forEach((c) => batch.set(this.ref(c.id), c));
+    await batch.commit();
   }
 }

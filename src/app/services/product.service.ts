@@ -1,70 +1,69 @@
-import { Injectable, computed, signal } from '@angular/core';
+import { Injectable, computed, inject } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
+import {
+  Firestore, collection, collectionData, doc,
+  setDoc, updateDoc, deleteDoc, writeBatch,
+} from '@angular/fire/firestore';
+import { Observable, map } from 'rxjs';
 import { Product } from '../models/product.model';
 import { PRODUCTS } from '../data/products';
-import { loadJSON, saveJSON } from './storage.util';
 
-const KEY = 'cc_products';
 const LOW_STOCK_THRESHOLD = 10;
 
 @Injectable({ providedIn: 'root' })
 export class ProductService {
-  private readonly _products = signal<Product[]>(loadJSON<Product[]>(KEY, PRODUCTS));
-  readonly products = this._products.asReadonly();
+  private readonly fs = inject(Firestore);
+  private readonly col = collection(this.fs, 'products');
 
-  readonly lowStock = computed(() => this._products().filter((p) => p.stock > 0 && p.stock <= LOW_STOCK_THRESHOLD));
-  readonly outOfStock = computed(() => this._products().filter((p) => p.stock === 0));
-  readonly totalStockValue = computed(() => this._products().reduce((sum, p) => sum + p.price * p.stock, 0));
+  readonly products = toSignal(
+    (collectionData(this.col) as Observable<Product[]>).pipe(
+      map((list) => [...list].sort((a, b) => a.id - b.id))
+    ),
+    { initialValue: [] as Product[] }
+  );
+
+  readonly lowStock = computed(() => this.products().filter((p) => p.stock > 0 && p.stock <= LOW_STOCK_THRESHOLD));
+  readonly outOfStock = computed(() => this.products().filter((p) => p.stock === 0));
+  readonly totalStockValue = computed(() => this.products().reduce((sum, p) => sum + p.price * p.stock, 0));
 
   readonly lowStockThreshold = LOW_STOCK_THRESHOLD;
 
-  private persist(list: Product[]): void {
-    saveJSON(KEY, list);
+  private ref(id: number) {
+    return doc(this.fs, 'products', String(id));
   }
 
   byId(id: number): Product | undefined {
-    return this._products().find((p) => p.id === id);
+    return this.products().find((p) => p.id === id);
   }
 
   add(product: Omit<Product, 'id'>): Product {
-    const nextId = Math.max(0, ...this._products().map((p) => p.id)) + 1;
+    const nextId = Math.max(0, ...this.products().map((p) => p.id)) + 1;
     const created: Product = { ...product, id: nextId };
-    this._products.update((list) => {
-      const next = [...list, created];
-      this.persist(next);
-      return next;
-    });
+    setDoc(this.ref(nextId), created);
     return created;
   }
 
   update(id: number, patch: Partial<Omit<Product, 'id'>>): void {
-    this._products.update((list) => {
-      const next = list.map((p) => (p.id === id ? { ...p, ...patch } : p));
-      this.persist(next);
-      return next;
-    });
+    updateDoc(this.ref(id), { ...patch });
   }
 
   remove(id: number): void {
-    this._products.update((list) => {
-      const next = list.filter((p) => p.id !== id);
-      this.persist(next);
-      return next;
-    });
+    deleteDoc(this.ref(id));
   }
 
   adjustStock(id: number, delta: number): void {
-    this._products.update((list) => {
-      const next = list.map((p) => (p.id === id ? { ...p, stock: Math.max(0, p.stock + delta) } : p));
-      this.persist(next);
-      return next;
-    });
+    const p = this.byId(id);
+    if (p) this.setStock(id, p.stock + delta);
   }
 
   setStock(id: number, stock: number): void {
-    this._products.update((list) => {
-      const next = list.map((p) => (p.id === id ? { ...p, stock: Math.max(0, stock) } : p));
-      this.persist(next);
-      return next;
-    });
+    updateDoc(this.ref(id), { stock: Math.max(0, stock) });
+  }
+
+  /* One-time: uploads the PRODUCTS array to Firestore */
+  async seed(): Promise<void> {
+    const batch = writeBatch(this.fs);
+    PRODUCTS.forEach((p) => batch.set(this.ref(p.id), p));
+    await batch.commit();
   }
 }
