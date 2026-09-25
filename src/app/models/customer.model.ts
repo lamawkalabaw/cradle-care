@@ -9,4 +9,7 @@ export interface Customer {
   ordersCount: number;
   totalSpent: number;
   status: CustomerStatus;
+  zip?: string;
+  address?: string;
+  billing?: string;
 }
