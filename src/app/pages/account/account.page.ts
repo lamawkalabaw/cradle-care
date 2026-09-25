@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, OnInit, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -25,7 +25,7 @@ type ProfileTab = 'details' | 'orders';
   templateUrl: './account.page.html',
   styleUrl: './account.page.scss',
 })
-export class AccountPage {
+export class AccountPage implements OnInit {
   auth = inject(AuthService);
   private orderService = inject(OrderService);
   private notifications = inject(NotificationService);
@@ -50,10 +50,17 @@ export class AccountPage {
   profileAddress = '';
   profileBilling = '';
   profileSaved = false;
+  profileSaving = false;
   profileErrors = { phone: false, zip: false };
 
   constructor() {
     addIcons({ logOutOutline, personCircleOutline });
+  }
+
+  async ngOnInit(): Promise<void> {
+    // Firebase auth state resolves async — wait before reading the profile,
+    // otherwise getStoredUser() may still be null on first render.
+    await this.auth.waitForReady();
     this.syncProfileFields();
   }
 
@@ -62,9 +69,9 @@ export class AccountPage {
     if (!user) return;
     this.profileName = user.name;
     this.profilePhone = user.phone;
-    this.profileZip = user.zip;
-    this.profileAddress = user.address;
-    this.profileBilling = user.billing;
+    this.profileZip = user.zip ?? '';
+    this.profileAddress = user.address ?? '';
+    this.profileBilling = user.billing ?? '';
   }
 
   setAuthMode(mode: AuthMode): void {
@@ -107,12 +114,17 @@ export class AccountPage {
     this.toast.show(mode === 'signup' ? 'Account created' : 'Welcome back');
   }
 
-  logout(): void {
-    this.auth.logout();
+  async logout(): Promise<void> {
+    await this.auth.logout();
+    this.profileName = '';
+    this.profilePhone = '';
+    this.profileZip = '';
+    this.profileAddress = '';
+    this.profileBilling = '';
     this.toast.show('You have been logged out');
   }
 
-  saveProfile(): void {
+  async saveProfile(): Promise<void> {
     const phoneValid = !this.profilePhone || isValidPhone(this.profilePhone);
     const zipValid = !this.profileZip || isValidPostal(this.profileZip);
     this.profileErrors = { phone: !phoneValid, zip: !zipValid };
@@ -120,10 +132,12 @@ export class AccountPage {
       this.toast.show(!phoneValid ? 'Please fix the phone number' : 'Please fix the postal code');
       return;
     }
-    this.auth.updateProfile({
+    this.profileSaving = true;
+    await this.auth.updateProfile({
       name: this.profileName, phone: this.profilePhone, zip: this.profileZip,
       address: this.profileAddress, billing: this.profileBilling,
     });
+    this.profileSaving = false;
     this.profileSaved = true;
     setTimeout(() => (this.profileSaved = false), 2500);
   }
