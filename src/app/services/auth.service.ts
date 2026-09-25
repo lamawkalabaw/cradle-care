@@ -3,7 +3,7 @@ import {
   Auth, authState, createUserWithEmailAndPassword, signInWithEmailAndPassword,
   signOut, updateProfile as updateAuthProfile, User,
 } from '@angular/fire/auth';
-import { Firestore, doc, docData, setDoc, updateDoc } from '@angular/fire/firestore';
+import { Firestore, doc, docData, setDoc, getDoc, updateDoc } from '@angular/fire/firestore';
 import { Observable, firstValueFrom } from 'rxjs';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { Customer } from '../models/customer.model';
@@ -72,10 +72,19 @@ export class AuthService {
         totalSpent: 0,
         status: 'active',
       };
+
       await setDoc(this.customerRef(cred.user.uid), newCustomer);
+
+      // Verification: confirm the write actually persisted before reporting success
+      const verifySnap = await getDoc(this.customerRef(cred.user.uid));
+      if (!verifySnap.exists()) {
+        throw new Error('Firestore write did not persist.');
+      }
+
       this._profile.set(newCustomer);
       return { ok: true };
     } catch (err: any) {
+      console.error('[AuthService.signup] Failed:', err);
       return { ok: false, message: this.mapError(err) };
     }
   }
